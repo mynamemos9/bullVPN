@@ -1,0 +1,100 @@
+import { expect, type Locator, type Page } from '@playwright/test';
+import type { PaymentMethod } from '../test-data/packages';
+
+/**
+ * Page Object Model สำหรับ https://www.bullvpn.com/en/order
+ *
+ * Locator เขียนจากข้อความที่แสดงบนหน้าเว็บ (getByRole / getByText)
+ * ถ้า UI เปลี่ยน แก้เฉพาะไฟล์นี้ — ใช้ `npx playwright codegen <url>` ช่วยหา selector ได้
+ */
+export class OrderPage {
+  readonly page: Page;
+  readonly usernameInput: Locator;
+  readonly cookieAgreeButton: Locator;
+
+  constructor(page: Page) {
+    this.page = page;
+    // มี 2 ช่อง (Order Details และส่วน Payment) ใช้ช่องแรก
+    this.usernameInput = page
+      .getByRole('textbox', { name: /E-mail address or Username/i })
+      .first();
+    this.cookieAgreeButton = page.getByText('AGREE', { exact: true });
+  }
+
+  // ---------- Actions ----------
+  async goto(): Promise<void> {
+    await this.page.goto('/en/order');
+    await expect(this.page).toHaveURL(/order/);
+    await this.acceptCookiesIfShown();
+  }
+
+  async acceptCookiesIfShown(): Promise<void> {
+    if (await this.cookieAgreeButton.isVisible().catch(() => false)) {
+      await this.cookieAgreeButton.click();
+    }
+  }
+
+  async enterUsername(username: string): Promise<void> {
+    await this.usernameInput.fill(username);
+    await this.usernameInput.blur(); // ให้ระบบตรวจสอบ user
+    await expect(
+      this.page.getByText('Email or Username not found')
+    ).toBeHidden();
+  }
+
+  async selectPackage(name: string): Promise<void> {
+    await this.page.getByText(name, { exact: true }).first().click();
+  }
+
+  async selectPaymentMethod(method: PaymentMethod): Promise<void> {
+    await this.page.getByText(method, { exact: true }).first().click();
+  }
+
+  // ---------- Getters ----------
+  /** ราคาที่แสดงบนการ์ด Package (ตัวเลข THB) */
+  async getPackageCardPrice(name: string): Promise<number> {
+    const card = this.page
+      .getByText(name, { exact: true })
+      .first()
+      .locator('xpath=ancestor::*[contains(., "THB")][1]');
+    const text = await card.innerText();
+    const firstPrice = text.match(/([\d,]+)\s*THB(?!\s*\/)/);
+    return Number(firstPrice?.[1].replace(/,/g, ''));
+  }
+
+  /** กล่องสรุปรายการสั่งซื้อที่กำลังแสดงอยู่ (Username / Plan / Total) */
+  private summaryPanel(): Locator {
+    return this.page
+      .locator('div:visible')
+      .filter({ hasText: /Username\s*:/ })
+      .filter({ hasText: /Total/ })
+      .last();
+  }
+
+  async getSummaryText(): Promise<string> {
+    return (await this.summaryPanel().innerText()).replace(/\s+/g, ' ');
+  }
+
+  /** ยอดสุทธิ = ตัวเลขหลังคำว่า "Total" ตัวสุดท้ายในกล่องสรุป */
+  async getDisplayedTotal(): Promise<number> {
+    const text = await this.getSummaryText();
+    const matches = [...text.matchAll(/Total(?: amount)?\s*:\s*([\d,]+(?:\.\d+)?)/gi)];
+    const last = matches.at(-1)?.[1] ?? '';
+    return Number(last.replace(/,/g, ''));
+  }
+
+  // ---------- Assertions ----------
+  async expectSummaryToShow(username: string): Promise<void> {
+    await expect
+      .poll(() => this.getSummaryText(), { message: 'ต้องแสดง Username ในสรุปรายการ' })
+      .toContain(username);
+  }
+
+  async expectTotalToBe(expected: number): Promise<void> {
+    await expect
+      .poll(() => this.getDisplayedTotal(), {
+        message: `ยอดเงินต้องเท่ากับ ${expected} THB`,
+      })
+      .toBe(expected);
+  }
+}

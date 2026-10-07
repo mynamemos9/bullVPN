@@ -1,0 +1,26 @@
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests',
+  fullyParallel: true,
+  workers: 2,
+  retries: process.env.CI ? 2 : 0,
+  reporter: [['html', { open: 'never' }], ['list']],
+
+  use: {
+    // เปลี่ยน URL ผ่าน env ได้: BASE_URL=https://your-site.com npx playwright test
+    baseURL: process.env.BASE_URL ?? 'https://www.bullvpn.com',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+
+  // Cross-browser: รันได้ทั้ง Chromium, Firefox, WebKit (Safari) และ Mobile
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
+    { name: 'mobile-safari', use: { ...devices['iPhone 14'] } },
+  ],
+});
